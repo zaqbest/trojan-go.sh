@@ -3,7 +3,7 @@ set -euo pipefail
 
 DEFAULT_PORT=54389
 DEFAULT_PASSWORD="Ijk2e20p7gEVTjXS"
-DEFAULT_SNI="trojan-go.zaqbest.com"
+DEFAULT_SNI="bing.com"
 
 PORT="${PORT:-$DEFAULT_PORT}"
 PASSWORD="${PASSWORD:-$DEFAULT_PASSWORD}"
