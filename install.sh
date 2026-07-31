@@ -189,22 +189,38 @@ get_public_ip() {
   echo "$ip"
 }
 
-# 基于 IP 后 2 段生成 Surge 节点名前缀
+# 获取地区 (ISO 2 位国家码, 如 HK / US / JP / SG). 失败返回 XX
+get_region() {
+    local region
+    region="$(curl -fsSL -4 --max-time 5 https://ipinfo.io/country 2>/dev/null | tr -d '\r\n' || true)"
+    if [[ -z "${region}" ]] || ! echo "${region}" | grep -qE '^[A-Z]{2}$'; then
+        region="$(curl -fsSL -4 --max-time 5 https://api.ip.sb/geoip 2>/dev/null \
+                    | grep -oE '"country_code":"[A-Z]{2}"' | cut -d'"' -f4 || true)"
+    fi
+    if [[ -z "${region}" ]] || ! echo "${region}" | grep -qE '^[A-Z]{2}$'; then
+        region="XX"
+    fi
+    echo "${region}"
+}
+
+# 生成节点名字基础前缀:  Node-Proxy-<REGION>-<IP-LAST2>
 node_prefix() {
-  local ip="$1"
-  local last2
-  last2="$(echo "${ip}" | awk -F. '{print $3"-"$4}' 2>/dev/null || true)"
-  if [[ -z "${last2}" || "${last2}" = "-" ]]; then
-    echo "trojan"
-  else
-    echo "tj-${last2}"
-  fi
+    local ip="$1" region="$2"
+    local last1 last2
+    last1="$(echo "${ip}" | awk -F. '{print $3}' 2>/dev/null || true)"
+    last2="$(echo "${ip}" | awk -F. '{print $4}' 2>/dev/null || true)"
+    if [[ -z "${last1}" ]] || [[ -z "${last2}" ]]; then
+        echo "Node-Proxy-${region}"
+    else
+        echo "Node-Proxy-${region}-${last1}-${last2}"
+    fi
 }
 
 show_result() {
-  local public_ip prefix trojan_url
+  local public_ip region prefix trojan_url
   public_ip="$(get_public_ip)"
-  prefix="$(node_prefix "${public_ip}")"
+  region="$(get_region)"
+  prefix="$(node_prefix "${public_ip}" "${region}")-Trojan"
   trojan_url="trojan://${PASSWORD}@${public_ip}:${PORT}?security=tls&sni=${SNI}&alpn=h2%2Chttp%2F1.1&allowInsecure=1#${prefix}"
 
   log "安装完成"
