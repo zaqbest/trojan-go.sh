@@ -180,16 +180,75 @@ EOF
   systemctl restart trojan-go
 }
 
+get_public_ip() {
+  local ip
+  ip="$(curl -fsSL -4 --max-time 5 https://api.ipify.org 2>/dev/null \
+        || curl -fsSL -4 --max-time 5 https://ifconfig.me 2>/dev/null \
+        || curl -fsSL -4 --max-time 5 https://ipinfo.io/ip 2>/dev/null)"
+  [[ -z "$ip" ]] && ip="<your-server-ip>"
+  echo "$ip"
+}
+
+# 基于 IP 后 2 段生成 Surge 节点名前缀
+node_prefix() {
+  local ip="$1"
+  local last2
+  last2="$(echo "${ip}" | awk -F. '{print $3"-"$4}' 2>/dev/null || true)"
+  if [[ -z "${last2}" || "${last2}" = "-" ]]; then
+    echo "trojan"
+  else
+    echo "tj-${last2}"
+  fi
+}
+
 show_result() {
+  local public_ip prefix trojan_url
+  public_ip="$(get_public_ip)"
+  prefix="$(node_prefix "${public_ip}")"
+  trojan_url="trojan://${PASSWORD}@${public_ip}:${PORT}?security=tls&sni=${SNI}&alpn=h2%2Chttp%2F1.1&allowInsecure=1#${prefix}"
+
   log "安装完成"
-  echo "----------------------------------"
-  echo "端口: ${PORT}"
-  echo "密码: ${PASSWORD}"
-  echo "SNI: ${SNI}"
-  echo "配置: ${CONFIG_DIR}/config.json"
-  echo "证书: ${CERT_DIR}/server.crt"
-  echo "状态: systemctl status trojan-go --no-pager"
-  echo "----------------------------------"
+  echo
+  echo -e "\033[1;32m============================================================\033[0m"
+  echo -e "\033[1;32m     Trojan-Go 安装成功！\033[0m"
+  echo -e "\033[1;32m============================================================\033[0m"
+  echo -e " \033[1;34m服务器地址\033[0m : ${public_ip}"
+  echo -e " \033[1;34m端口\033[0m       : ${PORT}"
+  echo -e " \033[1;34m密码\033[0m       : ${PASSWORD}"
+  echo -e " \033[1;34mSNI\033[0m        : ${SNI}"
+  echo -e " \033[1;34m证书类型\033[0m   : 自签 (客户端必须开 skip-cert-verify)"
+  echo -e " \033[1;34m配置文件\033[0m   : ${CONFIG_DIR}/config.json"
+  echo -e " \033[1;34m证书文件\033[0m   : ${CERT_DIR}/server.crt"
+  echo -e "\033[1;32m------------------------------------------------------------\033[0m"
+  echo -e "\033[1;33m# Surge / Stash / Loon [Proxy] 直接复制:\033[0m"
+  echo "${prefix} = trojan, ${public_ip}, ${PORT}, password=${PASSWORD}, sni=${SNI}, skip-cert-verify=true, udp-relay=true"
+  echo
+  echo -e "\033[1;33m# 通用 URL:\033[0m"
+  echo "${trojan_url}"
+  echo -e "\033[1;32m------------------------------------------------------------\033[0m"
+  echo -e " 服务管理:"
+  echo -e "   状态 : \033[1;33msystemctl status trojan-go --no-pager\033[0m"
+  echo -e "   重启 : \033[1;33msystemctl restart trojan-go\033[0m"
+  echo -e "   日志 : \033[1;33mjournalctl -u trojan-go -f\033[0m"
+  echo -e "\033[1;32m============================================================\033[0m"
+  echo
+
+  # 同时写入客户端信息文件
+  cat > "${BASE_DIR}/client_info.txt" <<CIEOF
+  Trojan-Go server info (client reference)
+Server IP : ${public_ip}
+Port      : ${PORT}
+Password  : ${PASSWORD}
+SNI       : ${SNI}
+Cert type : self-signed (client MUST enable skip-cert-verify / allow_insecure)
+
+# Surge / Stash / Loon [Proxy] 直接复制:
+${prefix} = trojan, ${public_ip}, ${PORT}, password=${PASSWORD}, sni=${SNI}, skip-cert-verify=true, udp-relay=true
+
+# 通用 URL:
+${trojan_url}
+CIEOF
+  chmod 600 "${BASE_DIR}/client_info.txt"
 }
 
 main() {
